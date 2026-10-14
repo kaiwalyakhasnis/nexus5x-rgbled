@@ -1,5 +1,11 @@
 # Nexus 5X RGB LED: from kernel driver to app API
 
+<p align="center">
+  <img src="media/demo.gif" alt="RgbLedDemo running on a Nexus 5X: changing color, blinking and applying the heartbeat kernel trigger" width="480">
+  <br>
+  <sub>RgbLedDemo on a Nexus 5X (sped up 1.33×). <a href="media/demo.mp4">Full-quality video</a></sub>
+</p>
+
 ## Motivation
 
 I've been building Android apps since 2014, more than 12 years, almost entirely on top of the SDK. I call
@@ -35,8 +41,6 @@ that calls it.
 The device and Android version are long obsolete, so nobody needs to flash this. The repository
 is here to show **every layer you have to touch to add a hardware feature to Android**, and
 the tricks needed to make each layer talk to the next one.
-
-<!-- TODO: add a photo or GIF of the LED running the heartbeat trigger -->
 
 ## Architecture
 
@@ -83,6 +87,7 @@ manifest-pinned.xml         repo manifest with the exact revisions the patches a
 sdk/                        build-sdk.sh, api.txt, rgbled-sdk.jar (+ sources jar for javadoc)
 RgbLedDemo/                 the demo app (Gradle project)
 docs/                       one write-up per layer
+media/                      demo GIF + muted MP4
 ```
 
 ## Reproducing it

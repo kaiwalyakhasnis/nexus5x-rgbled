@@ -4,7 +4,7 @@ Source: [`RgbLedDemo/`](../RgbLedDemo/)
 
 A single-screen Jetpack Compose app that exercises every `RgbLedManager` call.
 
-<!-- TODO: screenshot -->
+<img src="../media/demo.gif" alt="RgbLedDemo in action" width="480">
 
 ## Features
 
