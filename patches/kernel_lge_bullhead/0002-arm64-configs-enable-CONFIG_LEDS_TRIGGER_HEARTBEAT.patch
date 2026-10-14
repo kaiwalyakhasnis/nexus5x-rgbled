@@ -1,0 +1,98 @@
+From d814d10c28051d1036d832bc6394d21e39e7f141 Mon Sep 17 00:00:00 2001
+From: kk <kaiwalya.khasnis57@gmail.com>
+Date: Wed, 14 Oct 2026 11:33:30 +0900
+Subject: [PATCH 2/3] arm64: configs: enable CONFIG_LEDS_TRIGGER_HEARTBEAT
+
+Makes the "heartbeat" kernel LED trigger available on the notification
+RGB LED channels (/sys/class/leds/{red,green,blue}/trigger).
+---
+ arch/arm64/configs/bullhead_defconfig           | 1 +
+ arch/arm64/configs/defconfig                    | 1 +
+ arch/arm64/configs/lineageos_bullhead_defconfig | 1 +
+ arch/arm64/configs/msm-perf_defconfig           | 1 +
+ arch/arm64/configs/msm8994-perf_defconfig       | 1 +
+ arch/arm64/configs/msm8994_defconfig            | 1 +
+ arch/arm64/configs/msm_defconfig                | 1 +
+ 7 files changed, 7 insertions(+)
+
+diff --git a/arch/arm64/configs/bullhead_defconfig b/arch/arm64/configs/bullhead_defconfig
+index 983c23fbfb4..bcbc7d9a3a4 100644
+--- a/arch/arm64/configs/bullhead_defconfig
++++ b/arch/arm64/configs/bullhead_defconfig
+@@ -507,6 +507,7 @@ CONFIG_LEDS_QPNP_FLASH=y
+ CONFIG_LEDS_QPNP_WLED=y
+ CONFIG_LEDS_TRIGGERS=y
+ CONFIG_LEDS_TRIGGER_TIMER=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_EDAC=y
+ CONFIG_EDAC_MM_EDAC=y
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index 3421f316f5d..aa35f177f42 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -128,3 +128,4 @@ CONFIG_CRYPTO_AES_ARM64_CE=y
+ CONFIG_CRYPTO_AES_ARM64_CE_CCM=y
+ CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
+ CONFIG_CRYPTO_AES_ARM64_NEON_BLK=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+diff --git a/arch/arm64/configs/lineageos_bullhead_defconfig b/arch/arm64/configs/lineageos_bullhead_defconfig
+index 983c23fbfb4..bcbc7d9a3a4 100644
+--- a/arch/arm64/configs/lineageos_bullhead_defconfig
++++ b/arch/arm64/configs/lineageos_bullhead_defconfig
+@@ -507,6 +507,7 @@ CONFIG_LEDS_QPNP_FLASH=y
+ CONFIG_LEDS_QPNP_WLED=y
+ CONFIG_LEDS_TRIGGERS=y
+ CONFIG_LEDS_TRIGGER_TIMER=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_EDAC=y
+ CONFIG_EDAC_MM_EDAC=y
+diff --git a/arch/arm64/configs/msm-perf_defconfig b/arch/arm64/configs/msm-perf_defconfig
+index 8057f164289..05a4c6a9698 100644
+--- a/arch/arm64/configs/msm-perf_defconfig
++++ b/arch/arm64/configs/msm-perf_defconfig
+@@ -395,6 +395,7 @@ CONFIG_MMC_SDHCI=y
+ CONFIG_MMC_SDHCI_PLTFM=y
+ CONFIG_MMC_SDHCI_MSM=y
+ CONFIG_LEDS_TRIGGERS=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_RTC_CLASS=y
+ CONFIG_RTC_DRV_QPNP=y
+diff --git a/arch/arm64/configs/msm8994-perf_defconfig b/arch/arm64/configs/msm8994-perf_defconfig
+index e0fd8e492cc..1b0cce7ba73 100644
+--- a/arch/arm64/configs/msm8994-perf_defconfig
++++ b/arch/arm64/configs/msm8994-perf_defconfig
+@@ -430,6 +430,7 @@ CONFIG_LEDS_QPNP_WLED=y
+ CONFIG_LEDS_TRIGGERS=y
+ CONFIG_LEDS_TRIGGER_BACKLIGHT=y
+ CONFIG_LEDS_TRIGGER_DEFAULT_ON=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_RTC_CLASS=y
+ CONFIG_RTC_DRV_QPNP=y
+diff --git a/arch/arm64/configs/msm8994_defconfig b/arch/arm64/configs/msm8994_defconfig
+index f83abce3093..5c4c13aa26b 100644
+--- a/arch/arm64/configs/msm8994_defconfig
++++ b/arch/arm64/configs/msm8994_defconfig
+@@ -455,6 +455,7 @@ CONFIG_LEDS_QPNP_WLED=y
+ CONFIG_LEDS_TRIGGERS=y
+ CONFIG_LEDS_TRIGGER_BACKLIGHT=y
+ CONFIG_LEDS_TRIGGER_DEFAULT_ON=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_EDAC=y
+ CONFIG_EDAC_MM_EDAC=y
+diff --git a/arch/arm64/configs/msm_defconfig b/arch/arm64/configs/msm_defconfig
+index 74dc35114ac..3ff27cadf5d 100644
+--- a/arch/arm64/configs/msm_defconfig
++++ b/arch/arm64/configs/msm_defconfig
+@@ -404,6 +404,7 @@ CONFIG_MMC_SDHCI=y
+ CONFIG_MMC_SDHCI_PLTFM=y
+ CONFIG_MMC_SDHCI_MSM=y
+ CONFIG_LEDS_TRIGGERS=y
++CONFIG_LEDS_TRIGGER_HEARTBEAT=y
+ CONFIG_SWITCH=y
+ CONFIG_RTC_CLASS=y
+ CONFIG_RTC_DRV_QPNP=y

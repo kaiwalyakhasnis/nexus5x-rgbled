@@ -1,0 +1,23 @@
+package android.hardware.rgbled {
+
+  public final class RgbLedManager {
+    method public int getBrightness(int);
+    method public java.lang.String[] getSupportedTriggers();
+    method public java.lang.String getTrigger(int);
+    method public boolean isAvailable();
+    method public boolean setBlink(int, int, int, int);
+    method public boolean setChannel(int, int);
+    method public boolean setColor(int, int);
+    method public boolean setTrigger(int, java.lang.String);
+    method public boolean turnOff();
+    field public static final int CHANNEL_BLUE = 2; // 0x2
+    field public static final int CHANNEL_GREEN = 1; // 0x1
+    field public static final int CHANNEL_RED = 0; // 0x0
+    field public static final int MAX_BLINK_MS = 10000; // 0x2710
+    field public static final int MIN_BLINK_ON_MS = 50; // 0x32
+    field public static final java.lang.String TRIGGER_HEARTBEAT = "heartbeat";
+    field public static final java.lang.String TRIGGER_NONE = "none";
+    field public static final java.lang.String TRIGGER_TIMER = "timer";
+  }
+
+}

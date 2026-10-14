@@ -1,0 +1,90 @@
+# 2. HAL, SELinux and the framework service
+
+Patches:
+[`hardware_lineage_interfaces/`](../patches/hardware_lineage_interfaces/),
+[`device_lge_bullhead/`](../patches/device_lge_bullhead/),
+[`frameworks_base/`](../patches/frameworks_base/)
+
+Android 8 (Treble) puts a hard boundary between the framework (`system_server`, apps) and the
+vendor implementation. The framework never writes to `/sys` itself. It talks to a **HAL** over
+HwBinder, and the HAL owns the hardware details. So the feature needs three pieces: an interface, an
+implementation, and a framework service that apps can reach.
+
+## Why a new HAL instead of extending `ILight`?
+
+The obvious first idea was to add `setHeartbeatTrigger()` to `android.hardware.light@2.0::ILight`.
+That is a dead end. AOSP HIDL interfaces are **frozen** once released, and changing `ILight@2.0` in
+place breaks its hash in `current.txt` and the VTS contract. The correct approach is a new package
+in a namespace you own, which is what `vendor.lineage.*` is for.
+
+## 2a. The HIDL interface: `vendor.lineage.rgbled@1.0`
+
+`hardware/lineage/interfaces/rgbled/1.0/IRgbLed.hal`
+
+```
+interface IRgbLed {
+    setChannel(Channel channel, uint8_t brightness) generates (Status status);
+    setColor(uint32_t rgb, uint8_t brightness) generates (Status status);
+    setBlink(uint32_t rgb, uint8_t brightness, uint32_t onMs, uint32_t offMs) generates (Status status);
+    getSupportedTriggers() generates (vec<string> triggers);
+    setTrigger(Channel channel, string trigger) generates (Status status);
+    getTrigger(Channel channel) generates (string trigger);
+    getBrightness(Channel channel) generates (int32_t brightness);
+    turnOff() generates (Status status);
+};
+```
+
+`hidl-gen` creates `Android.bp`/`Android.mk` from this. That gives the C++ library for the HAL
+and the `vendor.lineage.rgbled-V1.0-java-static` library that `system_server` links against.
+
+## 2b. The implementation: `vendor.lineage.rgbled@1.0-service.bullhead`
+
+`device/lge/bullhead/rgbled/RgbLed.cpp` maps each call to sysfs writes, using the same protocol as
+`liblight`:
+
+```cpp
+// stop, program every channel, restart -> all three start in sync
+writeNode(kRgbStart, 0);
+for each channel: trigger=none, on_off_ms="<on> <off>", brightness=level*brightness/255
+writeNode(kRgbStart, 1);
+```
+
+- `getSupportedTriggers()` parses `/sys/class/leds/red/trigger` (`none [timer] heartbeat`).
+- `setTrigger()` sets `on_off_ms` to `0 0` first, so the PMIC pattern is solid and each trigger
+  step shows up as plain on/off instead of a ramp.
+- The service is a normal HIDL daemon (`service.cpp` → `registerAsService()`), started by its
+  `.rc` file in `class hal` as user `system`. The `.rc` also `chown`s the `trigger` nodes, which are
+  root-owned by default.
+- `manifest.xml` declares the HAL so `hwservicemanager` allows it to register, and `device.mk`
+  adds it to `PRODUCT_PACKAGES`.
+
+## 2c. SELinux
+
+This took the most trial and error. Every denial shows up as `avc: denied` in `dmesg`/logcat.
+
+| File | Purpose |
+|---|---|
+| `hal_rgbled.te` | Declares `hal_rgbled`, `hal_rgbled_client`, `hal_rgbled_server`. Android 8.1 has no `hal_attribute()` macro, so the triple is declared by hand. Binder rules between client and server, and access to `sysfs_leds` |
+| `hal_rgbled_default.te` | Domain for the daemon, `init_daemon_domain` |
+| `file_contexts` | Labels the binary `hal_rgbled_default_exec` |
+| `genfs_contexts` | Labels `/sys/devices/soc.0/leds-qpnp-25/leds` as `sysfs_leds` |
+| `hwservice.te` / `hwservice_contexts` | Type and label for `vendor.lineage.rgbled::IRgbLed` in hwservicemanager |
+| `system_server.te` | `hal_client_domain(system_server, hal_rgbled)` |
+| `service.te` / `service_contexts` | `rgbled_service`, marked as `app_api_service` so apps can look it up |
+
+## 2d. Framework: `RgbLedManager` + `RgbLedService`
+
+This follows the same pattern as `ConsumerIrManager`, which is a good small example to copy.
+
+| Piece | File | Role |
+|---|---|---|
+| AIDL | `core/java/android/hardware/rgbled/IRgbLedService.aidl` | Binder contract between app process and `system_server` (`@hide`) |
+| Manager | `core/java/android/hardware/rgbled/RgbLedManager.java` | Public API. Thin wrapper around the AIDL proxy, with constants (`CHANNEL_*`, `TRIGGER_*`, blink limits) |
+| Service | `services/core/java/com/android/server/rgbled/RgbLedService.java` | `SystemService` that publishes the binder, checks permission and arguments, lazily gets `IRgbLed.getService()` and re-acquires it if the HAL dies (`linkToDeath`). Implements `dumpsys rgbled` |
+| Wiring | `Context.RGB_LED_SERVICE = "rgbled"`, `SystemServiceRegistry`, `SystemServer.startService(...)` | Makes `context.getSystemService(RgbLedManager::class.java)` work |
+| Permission | `core/res/AndroidManifest.xml`, `strings.xml` | `android.permission.CONTROL_RGB_LED`, protection level `normal` |
+| Build | `Android.mk` (AIDL), `services/core/Android.mk` (HIDL java lib) | |
+| API | `api/current.txt` (+ system/test) | Generated by `m update-api`. The public stubs, and so the SDK jar, come from here |
+
+Read-only calls (`isAvailable`, `getBrightness`, `getTrigger`, `getSupportedTriggers`) don't need
+the permission. Anything that changes the LED does.

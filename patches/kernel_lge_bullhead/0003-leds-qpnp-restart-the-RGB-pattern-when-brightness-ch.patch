@@ -1,0 +1,108 @@
+From 5b8be9adadafd566e77d6abc4715f7747ac613eb Mon Sep 17 00:00:00 2001
+From: kk <kaiwalya.khasnis57@gmail.com>
+Date: Wed, 14 Oct 2026 11:33:30 +0900
+Subject: [PATCH 3/3] leds: qpnp: restart the RGB pattern when brightness
+ changes
+
+The RGB channels on the PMI8994 are driven by the LPG, which only picks up a
+new level when the pattern is (re)started through rgb_start. Kernel
+triggers such as heartbeat call brightness_set directly and never touch
+rgb_start, so their changes were not visible on the LED.
+
+Wrap qpnp_led_set() for RGB channels: stop the pattern on all three
+channels, apply the brightness, then start it again. The helper mirrors
+the existing rgb_start_store() sysfs handler.
+---
+ drivers/leds/leds-qpnp.c | 60 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/drivers/leds/leds-qpnp.c b/drivers/leds/leds-qpnp.c
+index 2e2b67c0837..d3f4a67e38e 100644
+--- a/drivers/leds/leds-qpnp.c
++++ b/drivers/leds/leds-qpnp.c
+@@ -1892,10 +1892,49 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
+ 	return 0;
+ }
+ 
++static ssize_t rgb_ledclassdev_start_store(struct qpnp_led_data *led, bool isEnabled)
++{
++    int ret = -EINVAL;
++    unsigned long state = isEnabled ? 1 : 0;
++    struct qpnp_led_data *led_array;
++    int i;
++
++    if (led->rgb_cfg->start == (u8)state)
++        return 1;
++
++    led_array = dev_get_drvdata(&led->spmi_dev->dev);
++
++    for (i = 0; i < led_array->num_leds; i++) {
++        switch (led_array[i].id) {
++            case QPNP_ID_RGB_RED:
++            case QPNP_ID_RGB_GREEN:
++            case QPNP_ID_RGB_BLUE:
++                if (led_array[i].rgb_cfg->start == (u8)state)
++                    break;
++
++                led_array[i].rgb_cfg->start = (u8)state;
++                ret = qpnp_rgb_set(&led_array[i]);
++                if (ret < 0)
++                    dev_err(led_array[i].cdev.dev,
++                            "RGB set rgb start failed (%d)\n", ret);
++                if (!(led_array[i].rgb_cfg->pwm_cfg->lut_params.flags &
++                      PM_PWM_LUT_RAMP_UP))
++                    led_array[i].rgb_cfg->start = 0;
++                break;
++            default:
++                break;
++        }
++    }
++
++    return 0;
++}
++
++
+ static void qpnp_led_set(struct led_classdev *led_cdev,
+ 				enum led_brightness value)
+ {
+ 	struct qpnp_led_data *led;
++	int isRgb = 0;
+ 
+ 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
+ 	if (value < LED_OFF) {
+@@ -1905,14 +1944,35 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
+ 
+ 	if (value > led->cdev.max_brightness)
+ 		value = led->cdev.max_brightness;
++	
++	
++	switch (led->id) {
++    		case QPNP_ID_RGB_RED:
++    		case QPNP_ID_RGB_GREEN:
++    		case QPNP_ID_RGB_BLUE:
++        		isRgb = 1;
++        		break;
++    		default:
++        		break;
++		}
++
++	if (isRgb) {
++    		rgb_ledclassdev_start_store(led, false);
++	}
+ 
+ 	led->cdev.brightness = value;
+ 	if (led->in_order_command_processing)
+ 		queue_work(led->workqueue, &led->work);
+ 	else
+ 		schedule_work(&led->work);
++		
++	if (isRgb) {
++    		rgb_ledclassdev_start_store(led, true);
++	}
+ }
+ 
++
++
+ static void __qpnp_led_work(struct qpnp_led_data *led,
+ 				enum led_brightness value)
+ {

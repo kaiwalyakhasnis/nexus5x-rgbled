@@ -1,0 +1,426 @@
+From d6abc08f143d8f770149aeb64953b24797f44d0a Mon Sep 17 00:00:00 2001
+From: kk <kaiwalya.khasnis57@gmail.com>
+Date: Wed, 14 Oct 2026 11:33:31 +0900
+Subject: [PATCH 1/2] bullhead: add RGB LED HAL service
+
+vendor.lineage.rgbled@1.0-service.bullhead implements IRgbLed on top of
+/sys/class/leds/{red,green,blue}. Register it in the device manifest and
+add it to PRODUCT_PACKAGES.
+---
+ device.mk                                     |   4 +
+ manifest.xml                                  |   9 +
+ rgbled/Android.mk                             |  38 ++++
+ rgbled/RgbLed.cpp                             | 187 ++++++++++++++++++
+ rgbled/RgbLed.h                               |  62 ++++++
+ rgbled/service.cpp                            |  44 +++++
+ ...dor.lineage.rgbled@1.0-service.bullhead.rc |   9 +
+ 7 files changed, 353 insertions(+)
+ create mode 100644 rgbled/Android.mk
+ create mode 100644 rgbled/RgbLed.cpp
+ create mode 100644 rgbled/RgbLed.h
+ create mode 100644 rgbled/service.cpp
+ create mode 100644 rgbled/vendor.lineage.rgbled@1.0-service.bullhead.rc
+
+diff --git a/device.mk b/device.mk
+index 92288b5..3d5ca24 100644
+--- a/device.mk
++++ b/device.mk
+@@ -181,6 +181,10 @@ PRODUCT_PACKAGES += \
+     lights.vts \
+     android.hardware.light@2.0-impl
+ 
++# RGB LED HAL
++PRODUCT_PACKAGES += \
++    vendor.lineage.rgbled@1.0-service.bullhead
++
+ # RenderScript HAL
+ PRODUCT_PACKAGES += \
+     android.hardware.renderscript@1.0-impl
+diff --git a/manifest.xml b/manifest.xml
+index 4d2a5cf..470f51c 100644
+--- a/manifest.xml
++++ b/manifest.xml
+@@ -26,4 +26,13 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="hidl">
++        <name>vendor.lineage.rgbled</name>
++        <transport>hwbinder</transport>
++        <version>1.0</version>
++        <interface>
++            <name>IRgbLed</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+ </manifest>
+diff --git a/rgbled/Android.mk b/rgbled/Android.mk
+new file mode 100644
+index 0000000..fed0ebc
+--- /dev/null
++++ b/rgbled/Android.mk
+@@ -0,0 +1,38 @@
++#
++# Copyright (C) 2026 The LineageOS Project
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++
++LOCAL_PATH := $(call my-dir)
++
++include $(CLEAR_VARS)
++LOCAL_MODULE := vendor.lineage.rgbled@1.0-service.bullhead
++LOCAL_INIT_RC := vendor.lineage.rgbled@1.0-service.bullhead.rc
++LOCAL_MODULE_RELATIVE_PATH := hw
++LOCAL_SRC_FILES := \
++    RgbLed.cpp \
++    service.cpp
++
++LOCAL_SHARED_LIBRARIES := \
++    libbase \
++    libhidlbase \
++    libhidltransport \
++    libhwbinder \
++    liblog \
++    libutils \
++    vendor.lineage.rgbled@1.0
++
++LOCAL_MODULE_TAGS := optional
++
++include $(BUILD_EXECUTABLE)
+diff --git a/rgbled/RgbLed.cpp b/rgbled/RgbLed.cpp
+new file mode 100644
+index 0000000..0f9a148
+--- /dev/null
++++ b/rgbled/RgbLed.cpp
+@@ -0,0 +1,187 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#define LOG_TAG "RgbLedHal"
++
++#include "RgbLed.h"
++
++#include <algorithm>
++#include <cstdlib>
++#include <sstream>
++
++#include <android-base/file.h>
++#include <android-base/logging.h>
++#include <android-base/strings.h>
++
++namespace vendor {
++namespace lineage {
++namespace rgbled {
++namespace V1_0 {
++namespace implementation {
++
++namespace {
++
++constexpr const char* kLedDir = "/sys/class/leds/";
++constexpr const char* kChannelNames[] = {"red", "green", "blue"};
++// rgb_start on any one RGB channel latches all three (see leds-qpnp.c).
++constexpr const char* kRgbStart = "/sys/class/leds/red/rgb_start";
++
++// Limits enforced by rgb_on_off_ms_store() in leds-qpnp.c.
++constexpr uint32_t kMinOnMs = 50;
++constexpr uint32_t kMaxMs = 10000;
++
++bool isValid(Channel channel) {
++    int32_t c = static_cast<int32_t>(channel);
++    return c >= 0 && c < 3;
++}
++
++std::string nodePath(int channel, const char* node) {
++    return std::string(kLedDir) + kChannelNames[channel] + "/" + node;
++}
++
++bool writeNode(const std::string& path, const std::string& value) {
++    if (!android::base::WriteStringToFile(value, path)) {
++        PLOG(ERROR) << "Failed to write '" << value << "' to " << path;
++        return false;
++    }
++    return true;
++}
++
++bool writeNode(const std::string& path, uint32_t value) {
++    return writeNode(path, std::to_string(value));
++}
++
++std::string onOff(uint32_t onMs, uint32_t offMs) {
++    return std::to_string(onMs) + " " + std::to_string(offMs);
++}
++
++}  // namespace
++
++// Same write order as liblight's write_leds_locked(): stop the pattern, program
++// every channel, then restart so all three channels start in sync.
++Status RgbLed::writeAllLocked(uint32_t rgb, uint8_t brightness, uint32_t onMs, uint32_t offMs) {
++    const uint32_t levels[] = {(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff};
++    bool ok = writeNode(kRgbStart, 0u);
++    for (int i = 0; i < 3; i++) {
++        ok &= writeNode(nodePath(i, "trigger"), std::string("none"));
++        ok &= writeNode(nodePath(i, "on_off_ms"), onOff(onMs, offMs));
++        ok &= writeNode(nodePath(i, "brightness"), levels[i] * brightness / 255);
++    }
++    ok &= writeNode(kRgbStart, 1u);
++    return ok ? Status::SUCCESS : Status::IO_ERROR;
++}
++
++Return<Status> RgbLed::setChannel(Channel channel, uint8_t brightness) {
++    if (!isValid(channel)) return Status::BAD_VALUE;
++    int c = static_cast<int>(channel);
++    std::lock_guard<std::mutex> lock(mLock);
++    bool ok = writeNode(kRgbStart, 0u);
++    ok &= writeNode(nodePath(c, "trigger"), std::string("none"));
++    ok &= writeNode(nodePath(c, "on_off_ms"), onOff(0, 0));
++    ok &= writeNode(nodePath(c, "brightness"), brightness);
++    ok &= writeNode(kRgbStart, 1u);
++    return ok ? Status::SUCCESS : Status::IO_ERROR;
++}
++
++Return<Status> RgbLed::setColor(uint32_t rgb, uint8_t brightness) {
++    std::lock_guard<std::mutex> lock(mLock);
++    return writeAllLocked(rgb & 0xffffff, brightness, 0, 0);
++}
++
++Return<Status> RgbLed::setBlink(uint32_t rgb, uint8_t brightness, uint32_t onMs,
++                                uint32_t offMs) {
++    if (onMs < kMinOnMs || onMs > kMaxMs || offMs > kMaxMs) return Status::BAD_VALUE;
++    std::lock_guard<std::mutex> lock(mLock);
++    return writeAllLocked(rgb & 0xffffff, brightness, onMs, offMs);
++}
++
++std::vector<std::string> RgbLed::readTriggers(Channel channel, std::string* active) {
++    std::string content;
++    std::vector<std::string> triggers;
++    if (!android::base::ReadFileToString(nodePath(static_cast<int>(channel), "trigger"),
++                                         &content)) {
++        PLOG(ERROR) << "Failed to read triggers";
++        return triggers;
++    }
++    // Format: "none [heartbeat] timer ..." where the bracketed entry is active.
++    std::istringstream in(content);
++    std::string token;
++    while (in >> token) {
++        if (token.size() > 2 && token.front() == '[' && token.back() == ']') {
++            token = token.substr(1, token.size() - 2);
++            if (active) *active = token;
++        }
++        triggers.push_back(token);
++    }
++    return triggers;
++}
++
++Return<void> RgbLed::getSupportedTriggers(getSupportedTriggers_cb _hidl_cb) {
++    std::lock_guard<std::mutex> lock(mLock);
++    std::vector<std::string> triggers = readTriggers(Channel::RED, nullptr);
++    hidl_vec<hidl_string> result;
++    result.resize(triggers.size());
++    for (size_t i = 0; i < triggers.size(); i++) result[i] = triggers[i];
++    _hidl_cb(result);
++    return android::hardware::Void();
++}
++
++Return<Status> RgbLed::setTrigger(Channel channel, const hidl_string& trigger) {
++    if (!isValid(channel)) return Status::BAD_VALUE;
++    int c = static_cast<int>(channel);
++    std::lock_guard<std::mutex> lock(mLock);
++
++    std::vector<std::string> triggers = readTriggers(channel, nullptr);
++    if (std::find(triggers.begin(), triggers.end(), std::string(trigger)) == triggers.end()) {
++        return Status::NOT_SUPPORTED;
++    }
++    // A trigger drives brightness itself; keep the PMIC pattern solid so each
++    // trigger step shows as a plain on/off instead of a ramp.
++    bool ok = writeNode(nodePath(c, "on_off_ms"), onOff(0, 0));
++    ok &= writeNode(nodePath(c, "trigger"), std::string(trigger));
++    return ok ? Status::SUCCESS : Status::IO_ERROR;
++}
++
++Return<void> RgbLed::getTrigger(Channel channel, getTrigger_cb _hidl_cb) {
++    std::string active;
++    if (isValid(channel)) {
++        std::lock_guard<std::mutex> lock(mLock);
++        readTriggers(channel, &active);
++    }
++    _hidl_cb(active);
++    return android::hardware::Void();
++}
++
++Return<int32_t> RgbLed::getBrightness(Channel channel) {
++    if (!isValid(channel)) return -1;
++    std::string content;
++    if (!android::base::ReadFileToString(nodePath(static_cast<int>(channel), "brightness"),
++                                         &content)) {
++        return -1;
++    }
++    return std::atoi(android::base::Trim(content).c_str());
++}
++
++Return<Status> RgbLed::turnOff() {
++    std::lock_guard<std::mutex> lock(mLock);
++    return writeAllLocked(0, 0, 0, 0);
++}
++
++}  // namespace implementation
++}  // namespace V1_0
++}  // namespace rgbled
++}  // namespace lineage
++}  // namespace vendor
+diff --git a/rgbled/RgbLed.h b/rgbled/RgbLed.h
+new file mode 100644
+index 0000000..57d13fb
+--- /dev/null
++++ b/rgbled/RgbLed.h
+@@ -0,0 +1,62 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef VENDOR_LINEAGE_RGBLED_V1_0_RGBLED_H
++#define VENDOR_LINEAGE_RGBLED_V1_0_RGBLED_H
++
++#include <mutex>
++#include <string>
++#include <vector>
++
++#include <hidl/Status.h>
++#include <vendor/lineage/rgbled/1.0/IRgbLed.h>
++
++namespace vendor {
++namespace lineage {
++namespace rgbled {
++namespace V1_0 {
++namespace implementation {
++
++using ::android::hardware::hidl_string;
++using ::android::hardware::hidl_vec;
++using ::android::hardware::Return;
++
++class RgbLed : public IRgbLed {
++  public:
++    Return<Status> setChannel(Channel channel, uint8_t brightness) override;
++    Return<Status> setColor(uint32_t rgb, uint8_t brightness) override;
++    Return<Status> setBlink(uint32_t rgb, uint8_t brightness, uint32_t onMs,
++                            uint32_t offMs) override;
++    Return<void> getSupportedTriggers(getSupportedTriggers_cb _hidl_cb) override;
++    Return<Status> setTrigger(Channel channel, const hidl_string& trigger) override;
++    Return<void> getTrigger(Channel channel, getTrigger_cb _hidl_cb) override;
++    Return<int32_t> getBrightness(Channel channel) override;
++    Return<Status> turnOff() override;
++
++  private:
++    Status writeAllLocked(uint32_t rgb, uint8_t brightness, uint32_t onMs, uint32_t offMs);
++    std::vector<std::string> readTriggers(Channel channel, std::string* active);
++
++    std::mutex mLock;
++};
++
++}  // namespace implementation
++}  // namespace V1_0
++}  // namespace rgbled
++}  // namespace lineage
++}  // namespace vendor
++
++#endif  // VENDOR_LINEAGE_RGBLED_V1_0_RGBLED_H
+diff --git a/rgbled/service.cpp b/rgbled/service.cpp
+new file mode 100644
+index 0000000..d0e94e1
+--- /dev/null
++++ b/rgbled/service.cpp
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#define LOG_TAG "vendor.lineage.rgbled@1.0-service.bullhead"
++
++#include <android-base/logging.h>
++#include <hidl/HidlTransportSupport.h>
++
++#include "RgbLed.h"
++
++using android::hardware::configureRpcThreadpool;
++using android::hardware::joinRpcThreadpool;
++using vendor::lineage::rgbled::V1_0::IRgbLed;
++using vendor::lineage::rgbled::V1_0::implementation::RgbLed;
++
++int main() {
++    android::sp<IRgbLed> service = new RgbLed();
++
++    configureRpcThreadpool(1, true /* callerWillJoin */);
++
++    if (service->registerAsService() != android::OK) {
++        LOG(ERROR) << "Cannot register RGB LED HAL service";
++        return 1;
++    }
++
++    LOG(INFO) << "RGB LED HAL service ready";
++    joinRpcThreadpool();
++
++    LOG(ERROR) << "RGB LED HAL service exited unexpectedly";
++    return 1;
++}
+diff --git a/rgbled/vendor.lineage.rgbled@1.0-service.bullhead.rc b/rgbled/vendor.lineage.rgbled@1.0-service.bullhead.rc
+new file mode 100644
+index 0000000..a8591ed
+--- /dev/null
++++ b/rgbled/vendor.lineage.rgbled@1.0-service.bullhead.rc
+@@ -0,0 +1,9 @@
++on boot
++    chown system system /sys/class/leds/red/trigger
++    chown system system /sys/class/leds/green/trigger
++    chown system system /sys/class/leds/blue/trigger
++
++service vendor.rgbled-1-0 /system/bin/hw/vendor.lineage.rgbled@1.0-service.bullhead
++    class hal
++    user system
++    group system

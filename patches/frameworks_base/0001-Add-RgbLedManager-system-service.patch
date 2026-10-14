@@ -1,0 +1,780 @@
+From 0a10ed1da0346a88e6f84376d808e8ba8bb5afba Mon Sep 17 00:00:00 2001
+From: kk <kaiwalya.khasnis57@gmail.com>
+Date: Wed, 14 Oct 2026 11:33:33 +0900
+Subject: [PATCH] Add RgbLedManager system service
+
+New public API android.hardware.rgbled.RgbLedManager, obtained with
+context.getSystemService(Context.RGB_LED_SERVICE). RgbLedService runs in
+system_server and forwards calls to the vendor.lineage.rgbled@1.0 HAL.
+Mutating calls require the new normal permission
+android.permission.CONTROL_RGB_LED.
+---
+ Android.mk                                    |   1 +
+ api/current.txt                               |  26 +++
+ api/system-current.txt                        |  26 +++
+ api/test-current.txt                          |  26 +++
+ .../android/app/SystemServiceRegistry.java    |  11 +
+ core/java/android/content/Context.java        |  11 +
+ .../hardware/rgbled/IRgbLedService.aidl       |  30 +++
+ .../hardware/rgbled/RgbLedManager.java        | 190 +++++++++++++++
+ core/res/AndroidManifest.xml                  |   8 +
+ core/res/res/values/strings.xml               |   5 +
+ services/core/Android.mk                      |   3 +-
+ .../android/server/rgbled/RgbLedService.java  | 218 ++++++++++++++++++
+ .../java/com/android/server/SystemServer.java |   5 +
+ 13 files changed, 559 insertions(+), 1 deletion(-)
+ create mode 100644 core/java/android/hardware/rgbled/IRgbLedService.aidl
+ create mode 100644 core/java/android/hardware/rgbled/RgbLedManager.java
+ create mode 100644 services/core/java/com/android/server/rgbled/RgbLedService.java
+
+diff --git a/Android.mk b/Android.mk
+index 73dc9dced8f..9d50cf0dcf3 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -188,6 +188,7 @@ LOCAL_SRC_FILES += \
+ 	../av/camera/aidl/android/hardware/camera2/ICameraDeviceCallbacks.aidl \
+ 	core/java/android/hardware/IConsumerIrService.aidl \
+ 	core/java/android/hardware/ISerialManager.aidl \
++	core/java/android/hardware/rgbled/IRgbLedService.aidl \
+ 	core/java/android/hardware/display/IDisplayManager.aidl \
+ 	core/java/android/hardware/display/IDisplayManagerCallback.aidl \
+ 	core/java/android/hardware/display/IVirtualDisplayCallback.aidl \
+diff --git a/api/current.txt b/api/current.txt
+index 25e998c2946..829098b3957 100644
+--- a/api/current.txt
++++ b/api/current.txt
+@@ -64,6 +64,7 @@ package android {
+     field public static final java.lang.String CHANGE_WIFI_STATE = "android.permission.CHANGE_WIFI_STATE";
+     field public static final java.lang.String CLEAR_APP_CACHE = "android.permission.CLEAR_APP_CACHE";
+     field public static final java.lang.String CONTROL_LOCATION_UPDATES = "android.permission.CONTROL_LOCATION_UPDATES";
++    field public static final java.lang.String CONTROL_RGB_LED = "android.permission.CONTROL_RGB_LED";
+     field public static final java.lang.String DELETE_CACHE_FILES = "android.permission.DELETE_CACHE_FILES";
+     field public static final java.lang.String DELETE_PACKAGES = "android.permission.DELETE_PACKAGES";
+     field public static final java.lang.String DIAGNOSTIC = "android.permission.DIAGNOSTIC";
+@@ -8987,6 +8988,7 @@ package android.content {
+     field public static final java.lang.String PRINT_SERVICE = "print";
+     field public static final int RECEIVER_VISIBLE_TO_INSTANT_APPS = 1; // 0x1
+     field public static final java.lang.String RESTRICTIONS_SERVICE = "restrictions";
++    field public static final java.lang.String RGB_LED_SERVICE = "rgbled";
+     field public static final java.lang.String SEARCH_SERVICE = "search";
+     field public static final java.lang.String SENSOR_SERVICE = "sensor";
+     field public static final java.lang.String SHORTCUT_SERVICE = "shortcut";
+@@ -15911,6 +15913,30 @@ package android.hardware.input {
+ 
+ }
+ 
++package android.hardware.rgbled {
++
++  public final class RgbLedManager {
++    method public int getBrightness(int);
++    method public java.lang.String[] getSupportedTriggers();
++    method public java.lang.String getTrigger(int);
++    method public boolean isAvailable();
++    method public boolean setBlink(int, int, int, int);
++    method public boolean setChannel(int, int);
++    method public boolean setColor(int, int);
++    method public boolean setTrigger(int, java.lang.String);
++    method public boolean turnOff();
++    field public static final int CHANNEL_BLUE = 2; // 0x2
++    field public static final int CHANNEL_GREEN = 1; // 0x1
++    field public static final int CHANNEL_RED = 0; // 0x0
++    field public static final int MAX_BLINK_MS = 10000; // 0x2710
++    field public static final int MIN_BLINK_ON_MS = 50; // 0x32
++    field public static final java.lang.String TRIGGER_HEARTBEAT = "heartbeat";
++    field public static final java.lang.String TRIGGER_NONE = "none";
++    field public static final java.lang.String TRIGGER_TIMER = "timer";
++  }
++
++}
++
+ package android.hardware.usb {
+ 
+   public class UsbAccessory implements android.os.Parcelable {
+diff --git a/api/system-current.txt b/api/system-current.txt
+index 2bc8a929cf4..6962c91ad1b 100644
+--- a/api/system-current.txt
++++ b/api/system-current.txt
+@@ -98,6 +98,7 @@ package android {
+     field public static final java.lang.String CONNECTIVITY_USE_RESTRICTED_NETWORKS = "android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS";
+     field public static final java.lang.String CONTROL_INCALL_EXPERIENCE = "android.permission.CONTROL_INCALL_EXPERIENCE";
+     field public static final java.lang.String CONTROL_LOCATION_UPDATES = "android.permission.CONTROL_LOCATION_UPDATES";
++    field public static final java.lang.String CONTROL_RGB_LED = "android.permission.CONTROL_RGB_LED";
+     field public static final java.lang.String CONTROL_VPN = "android.permission.CONTROL_VPN";
+     field public static final java.lang.String CRYPT_KEEPER = "android.permission.CRYPT_KEEPER";
+     field public static final java.lang.String DELETE_CACHE_FILES = "android.permission.DELETE_CACHE_FILES";
+@@ -9501,6 +9502,7 @@ package android.content {
+     field public static final java.lang.String PRINT_SERVICE = "print";
+     field public static final int RECEIVER_VISIBLE_TO_INSTANT_APPS = 1; // 0x1
+     field public static final java.lang.String RESTRICTIONS_SERVICE = "restrictions";
++    field public static final java.lang.String RGB_LED_SERVICE = "rgbled";
+     field public static final java.lang.String SEARCH_SERVICE = "search";
+     field public static final java.lang.String SENSOR_SERVICE = "sensor";
+     field public static final java.lang.String SHORTCUT_SERVICE = "shortcut";
+@@ -17453,6 +17455,30 @@ package android.hardware.radio {
+ 
+ }
+ 
++package android.hardware.rgbled {
++
++  public final class RgbLedManager {
++    method public int getBrightness(int);
++    method public java.lang.String[] getSupportedTriggers();
++    method public java.lang.String getTrigger(int);
++    method public boolean isAvailable();
++    method public boolean setBlink(int, int, int, int);
++    method public boolean setChannel(int, int);
++    method public boolean setColor(int, int);
++    method public boolean setTrigger(int, java.lang.String);
++    method public boolean turnOff();
++    field public static final int CHANNEL_BLUE = 2; // 0x2
++    field public static final int CHANNEL_GREEN = 1; // 0x1
++    field public static final int CHANNEL_RED = 0; // 0x0
++    field public static final int MAX_BLINK_MS = 10000; // 0x2710
++    field public static final int MIN_BLINK_ON_MS = 50; // 0x32
++    field public static final java.lang.String TRIGGER_HEARTBEAT = "heartbeat";
++    field public static final java.lang.String TRIGGER_NONE = "none";
++    field public static final java.lang.String TRIGGER_TIMER = "timer";
++  }
++
++}
++
+ package android.hardware.usb {
+ 
+   public class UsbAccessory implements android.os.Parcelable {
+diff --git a/api/test-current.txt b/api/test-current.txt
+index bbaf021c530..83048145a0d 100644
+--- a/api/test-current.txt
++++ b/api/test-current.txt
+@@ -64,6 +64,7 @@ package android {
+     field public static final java.lang.String CHANGE_WIFI_STATE = "android.permission.CHANGE_WIFI_STATE";
+     field public static final java.lang.String CLEAR_APP_CACHE = "android.permission.CLEAR_APP_CACHE";
+     field public static final java.lang.String CONTROL_LOCATION_UPDATES = "android.permission.CONTROL_LOCATION_UPDATES";
++    field public static final java.lang.String CONTROL_RGB_LED = "android.permission.CONTROL_RGB_LED";
+     field public static final java.lang.String DELETE_CACHE_FILES = "android.permission.DELETE_CACHE_FILES";
+     field public static final java.lang.String DELETE_PACKAGES = "android.permission.DELETE_PACKAGES";
+     field public static final java.lang.String DIAGNOSTIC = "android.permission.DIAGNOSTIC";
+@@ -9021,6 +9022,7 @@ package android.content {
+     field public static final java.lang.String PRINT_SERVICE = "print";
+     field public static final int RECEIVER_VISIBLE_TO_INSTANT_APPS = 1; // 0x1
+     field public static final java.lang.String RESTRICTIONS_SERVICE = "restrictions";
++    field public static final java.lang.String RGB_LED_SERVICE = "rgbled";
+     field public static final java.lang.String SEARCH_SERVICE = "search";
+     field public static final java.lang.String SENSOR_SERVICE = "sensor";
+     field public static final java.lang.String SHORTCUT_SERVICE = "shortcut";
+@@ -16009,6 +16011,30 @@ package android.hardware.input {
+ 
+ }
+ 
++package android.hardware.rgbled {
++
++  public final class RgbLedManager {
++    method public int getBrightness(int);
++    method public java.lang.String[] getSupportedTriggers();
++    method public java.lang.String getTrigger(int);
++    method public boolean isAvailable();
++    method public boolean setBlink(int, int, int, int);
++    method public boolean setChannel(int, int);
++    method public boolean setColor(int, int);
++    method public boolean setTrigger(int, java.lang.String);
++    method public boolean turnOff();
++    field public static final int CHANNEL_BLUE = 2; // 0x2
++    field public static final int CHANNEL_GREEN = 1; // 0x1
++    field public static final int CHANNEL_RED = 0; // 0x0
++    field public static final int MAX_BLINK_MS = 10000; // 0x2710
++    field public static final int MIN_BLINK_ON_MS = 50; // 0x32
++    field public static final java.lang.String TRIGGER_HEARTBEAT = "heartbeat";
++    field public static final java.lang.String TRIGGER_NONE = "none";
++    field public static final java.lang.String TRIGGER_TIMER = "timer";
++  }
++
++}
++
+ package android.hardware.usb {
+ 
+   public class UsbAccessory implements android.os.Parcelable {
+diff --git a/core/java/android/app/SystemServiceRegistry.java b/core/java/android/app/SystemServiceRegistry.java
+index ab70f0e7121..d51bc578305 100644
+--- a/core/java/android/app/SystemServiceRegistry.java
++++ b/core/java/android/app/SystemServiceRegistry.java
+@@ -46,6 +46,8 @@ import android.hardware.ConsumerIrManager;
+ import android.hardware.ISerialManager;
+ import android.hardware.SensorManager;
+ import android.hardware.SerialManager;
++import android.hardware.rgbled.IRgbLedService;
++import android.hardware.rgbled.RgbLedManager;
+ import android.hardware.SystemSensorManager;
+ import android.hardware.camera2.CameraManager;
+ import android.hardware.display.DisplayManager;
+@@ -696,6 +698,15 @@ final class SystemServiceRegistry {
+                 return new ConsumerIrManager(ctx);
+             }});
+ 
++        registerService(Context.RGB_LED_SERVICE, RgbLedManager.class,
++                new CachedServiceFetcher<RgbLedManager>() {
++            @Override
++            public RgbLedManager createService(ContextImpl ctx) {
++                IBinder b = ServiceManager.getService(Context.RGB_LED_SERVICE);
++                return b == null ? null
++                        : new RgbLedManager(ctx, IRgbLedService.Stub.asInterface(b));
++            }});
++
+         registerService(Context.MEDIA_SESSION_SERVICE, MediaSessionManager.class,
+                 new CachedServiceFetcher<MediaSessionManager>() {
+             @Override
+diff --git a/core/java/android/content/Context.java b/core/java/android/content/Context.java
+index b266ca128d8..f11ed04bb33 100644
+--- a/core/java/android/content/Context.java
++++ b/core/java/android/content/Context.java
+@@ -3001,6 +3001,7 @@ public abstract class Context {
+             CAMERA_SERVICE,
+             PRINT_SERVICE,
+             CONSUMER_IR_SERVICE,
++            RGB_LED_SERVICE,
+             //@hide: TRUST_SERVICE,
+             TV_INPUT_SERVICE,
+             //@hide: NETWORK_SCORE_SERVICE,
+@@ -3896,6 +3897,16 @@ public abstract class Context {
+      */
+     public static final String CONSUMER_IR_SERVICE = "consumer_ir";
+ 
++    /**
++     * Use with {@link #getSystemService} to retrieve a
++     * {@link android.hardware.rgbled.RgbLedManager} for controlling the
++     * notification RGB LED.
++     *
++     * @see #getSystemService
++     * @see android.hardware.rgbled.RgbLedManager
++     */
++    public static final String RGB_LED_SERVICE = "rgbled";
++
+     /**
+      * {@link android.app.trust.TrustManager} for managing trust agents.
+      * @see #getSystemService
+diff --git a/core/java/android/hardware/rgbled/IRgbLedService.aidl b/core/java/android/hardware/rgbled/IRgbLedService.aidl
+new file mode 100644
+index 00000000000..85c7525e4b2
+--- /dev/null
++++ b/core/java/android/hardware/rgbled/IRgbLedService.aidl
+@@ -0,0 +1,30 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.hardware.rgbled;
++
++/** {@hide} */
++interface IRgbLedService {
++    boolean isAvailable();
++    boolean setChannel(int channel, int brightness);
++    boolean setColor(int rgb, int brightness);
++    boolean setBlink(int rgb, int brightness, int onMs, int offMs);
++    String[] getSupportedTriggers();
++    boolean setTrigger(int channel, String trigger);
++    String getTrigger(int channel);
++    int getBrightness(int channel);
++    boolean turnOff();
++}
+diff --git a/core/java/android/hardware/rgbled/RgbLedManager.java b/core/java/android/hardware/rgbled/RgbLedManager.java
+new file mode 100644
+index 00000000000..94249e9bd21
+--- /dev/null
++++ b/core/java/android/hardware/rgbled/RgbLedManager.java
+@@ -0,0 +1,190 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.hardware.rgbled;
++
++import android.Manifest;
++import android.annotation.ColorInt;
++import android.annotation.IntDef;
++import android.annotation.IntRange;
++import android.annotation.NonNull;
++import android.annotation.Nullable;
++import android.annotation.RequiresPermission;
++import android.annotation.SystemService;
++import android.content.Context;
++import android.os.RemoteException;
++
++import java.lang.annotation.Retention;
++import java.lang.annotation.RetentionPolicy;
++
++/**
++ * Controls the notification RGB LED: per-channel brightness, solid colors,
++ * hardware blinking and kernel LED triggers such as {@link #TRIGGER_HEARTBEAT}.
++ * <p>
++ * Obtain an instance with {@code context.getSystemService(Context.RGB_LED_SERVICE)};
++ * it is {@code null} on devices without an RGB LED HAL. Methods that change the LED
++ * require {@link android.Manifest.permission#CONTROL_RGB_LED}.
++ * <p>
++ * The system lights (battery, notifications) keep using the same LED, so a state
++ * set here is replaced the next time one of them changes.
++ */
++@SystemService(Context.RGB_LED_SERVICE)
++public final class RgbLedManager {
++    /** Red channel. */
++    public static final int CHANNEL_RED = 0;
++    /** Green channel. */
++    public static final int CHANNEL_GREEN = 1;
++    /** Blue channel. */
++    public static final int CHANNEL_BLUE = 2;
++
++    /** @hide */
++    @IntDef(prefix = { "CHANNEL_" }, value = { CHANNEL_RED, CHANNEL_GREEN, CHANNEL_BLUE })
++    @Retention(RetentionPolicy.SOURCE)
++    public @interface Channel {}
++
++    /** Detaches any kernel trigger from a channel. */
++    public static final String TRIGGER_NONE = "none";
++    /** Kernel trigger that pulses the channel like a heartbeat, faster under load. */
++    public static final String TRIGGER_HEARTBEAT = "heartbeat";
++    /** Kernel trigger that blinks the channel with a software timer. */
++    public static final String TRIGGER_TIMER = "timer";
++
++    /** Shortest supported on-time for {@link #setBlink}, in milliseconds. */
++    public static final int MIN_BLINK_ON_MS = 50;
++    /** Longest supported on- or off-time for {@link #setBlink}, in milliseconds. */
++    public static final int MAX_BLINK_MS = 10000;
++
++    private final IRgbLedService mService;
++
++    /** @hide */
++    public RgbLedManager(Context context, IRgbLedService service) {
++        mService = service;
++    }
++
++    /** Returns whether the RGB LED hardware service is reachable. */
++    public boolean isAvailable() {
++        try {
++            return mService.isAvailable();
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Sets one channel's brightness, leaving the other channels unchanged.
++     * A brightness of 0 switches the channel off.
++     *
++     * @return whether the hardware accepted the change
++     */
++    @RequiresPermission(Manifest.permission.CONTROL_RGB_LED)
++    public boolean setChannel(@Channel int channel, @IntRange(from = 0, to = 255) int brightness) {
++        try {
++            return mService.setChannel(channel, brightness);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Shows a solid color. Each component of {@code color} is scaled by
++     * {@code brightness}; alpha is ignored.
++     *
++     * @return whether the hardware accepted the change
++     */
++    @RequiresPermission(Manifest.permission.CONTROL_RGB_LED)
++    public boolean setColor(@ColorInt int color, @IntRange(from = 0, to = 255) int brightness) {
++        try {
++            return mService.setColor(color, brightness);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Blinks a color using the LED controller's hardware pattern generator.
++     *
++     * @param onMs time lit, {@link #MIN_BLINK_ON_MS} to {@link #MAX_BLINK_MS}
++     * @param offMs time dark, 0 to {@link #MAX_BLINK_MS}; 0 means solid
++     * @return whether the hardware accepted the change
++     */
++    @RequiresPermission(Manifest.permission.CONTROL_RGB_LED)
++    public boolean setBlink(@ColorInt int color, @IntRange(from = 0, to = 255) int brightness,
++            @IntRange(from = MIN_BLINK_ON_MS, to = MAX_BLINK_MS) int onMs,
++            @IntRange(from = 0, to = MAX_BLINK_MS) int offMs) {
++        try {
++            return mService.setBlink(color, brightness, onMs, offMs);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /** Returns the kernel LED triggers supported by the RGB channels. */
++    public @NonNull String[] getSupportedTriggers() {
++        try {
++            String[] triggers = mService.getSupportedTriggers();
++            return triggers != null ? triggers : new String[0];
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Attaches a kernel trigger, one of {@link #getSupportedTriggers()}, to a channel.
++     * Use {@link #TRIGGER_NONE} to detach.
++     *
++     * @return whether the trigger is supported and was attached
++     */
++    @RequiresPermission(Manifest.permission.CONTROL_RGB_LED)
++    public boolean setTrigger(@Channel int channel, @NonNull String trigger) {
++        try {
++            return mService.setTrigger(channel, trigger);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /** Returns the trigger attached to a channel, or {@code null} if it cannot be read. */
++    public @Nullable String getTrigger(@Channel int channel) {
++        try {
++            return mService.getTrigger(channel);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /** Returns a channel's current brightness (0-255), or -1 if it cannot be read. */
++    public int getBrightness(@Channel int channel) {
++        try {
++            return mService.getBrightness(channel);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Detaches all triggers and switches every channel off.
++     *
++     * @return whether the hardware accepted the change
++     */
++    @RequiresPermission(Manifest.permission.CONTROL_RGB_LED)
++    public boolean turnOff() {
++        try {
++            return mService.turnOff();
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++}
+diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
+index 8f9df8332d6..1da11fc3795 100644
+--- a/core/res/AndroidManifest.xml
++++ b/core/res/AndroidManifest.xml
+@@ -1501,6 +1501,14 @@
+         android:description="@string/permdesc_transmitIr"
+         android:protectionLevel="normal" />
+ 
++    <!-- Allows an application to control the notification RGB LED.
++         <p>Protection level: normal
++    -->
++    <permission android:name="android.permission.CONTROL_RGB_LED"
++        android:label="@string/permlab_controlRgbLed"
++        android:description="@string/permdesc_controlRgbLed"
++        android:protectionLevel="normal" />
++
+     <!-- ==================================================== -->
+     <!-- Permissions related to changing audio settings   -->
+     <!-- ==================================================== -->
+diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
+index a65176ffd14..27d742eb876 100644
+--- a/core/res/res/values/strings.xml
++++ b/core/res/res/values/strings.xml
+@@ -1103,6 +1103,11 @@
+     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+     <string name="permdesc_transmitIr" product="default">Allows the app to use the phone\'s infrared transmitter.</string>
+ 
++    <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
++    <string name="permlab_controlRgbLed">control notification LED</string>
++    <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
++    <string name="permdesc_controlRgbLed">Allows the app to change the color, blinking and triggers of the notification LED.</string>
++
+     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+     <string name="permlab_setWallpaper">set wallpaper</string>
+     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+diff --git a/services/core/Android.mk b/services/core/Android.mk
+index e62e5f73144..019a8373b49 100644
+--- a/services/core/Android.mk
++++ b/services/core/Android.mk
+@@ -33,7 +33,8 @@ LOCAL_STATIC_JAVA_LIBRARIES := \
+     android.hardware.oemlock-V1.0-java-static \
+     android.hardware.tetheroffload.control-V1.0-java-static \
+     android.hardware.vibrator-V1.0-java-constants \
+-    android.hardware.configstore-V1.0-java-static
++    android.hardware.configstore-V1.0-java-static \
++    vendor.lineage.rgbled-V1.0-java-static
+ 
+ LOCAL_JAVA_LIBRARIES += org.lineageos.platform.internal
+ 
+diff --git a/services/core/java/com/android/server/rgbled/RgbLedService.java b/services/core/java/com/android/server/rgbled/RgbLedService.java
+new file mode 100644
+index 00000000000..e28212efafa
+--- /dev/null
++++ b/services/core/java/com/android/server/rgbled/RgbLedService.java
+@@ -0,0 +1,218 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.rgbled;
++
++import android.Manifest;
++import android.content.Context;
++import android.hardware.rgbled.IRgbLedService;
++import android.hardware.rgbled.RgbLedManager;
++import android.os.RemoteException;
++import android.util.Slog;
++
++import com.android.internal.util.DumpUtils;
++import com.android.server.SystemService;
++
++import vendor.lineage.rgbled.V1_0.IRgbLed;
++import vendor.lineage.rgbled.V1_0.Status;
++
++import java.io.FileDescriptor;
++import java.io.PrintWriter;
++import java.util.ArrayList;
++import java.util.NoSuchElementException;
++
++public class RgbLedService extends SystemService {
++    private static final String TAG = "RgbLedService";
++
++    private final Object mLock = new Object();
++    private IRgbLed mHal;
++
++    public RgbLedService(Context context) {
++        super(context);
++    }
++
++    @Override
++    public void onStart() {
++        publishBinderService(Context.RGB_LED_SERVICE, new BinderService());
++    }
++
++    private IRgbLed getHal() {
++        synchronized (mLock) {
++            if (mHal == null) {
++                try {
++                    mHal = IRgbLed.getService();
++                    mHal.linkToDeath(cookie -> {
++                        Slog.w(TAG, "RGB LED HAL died");
++                        synchronized (mLock) {
++                            mHal = null;
++                        }
++                    }, 0);
++                } catch (RemoteException | NoSuchElementException e) {
++                    Slog.w(TAG, "RGB LED HAL not available", e);
++                    mHal = null;
++                }
++            }
++            return mHal;
++        }
++    }
++
++    private static void checkChannel(int channel) {
++        if (channel < RgbLedManager.CHANNEL_RED || channel > RgbLedManager.CHANNEL_BLUE) {
++            throw new IllegalArgumentException("Invalid channel " + channel);
++        }
++    }
++
++    private static void checkBrightness(int brightness) {
++        if (brightness < 0 || brightness > 255) {
++            throw new IllegalArgumentException("Brightness must be 0-255, was " + brightness);
++        }
++    }
++
++    private final class BinderService extends IRgbLedService.Stub {
++        private void enforceControl() {
++            getContext().enforceCallingOrSelfPermission(
++                    Manifest.permission.CONTROL_RGB_LED, "Controlling the RGB LED");
++        }
++
++        @Override
++        public boolean isAvailable() {
++            return getHal() != null;
++        }
++
++        @Override
++        public boolean setChannel(int channel, int brightness) {
++            enforceControl();
++            checkChannel(channel);
++            checkBrightness(brightness);
++            IRgbLed hal = getHal();
++            try {
++                return hal != null && hal.setChannel(channel, (byte) brightness) == Status.SUCCESS;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "setChannel failed", e);
++                return false;
++            }
++        }
++
++        @Override
++        public boolean setColor(int rgb, int brightness) {
++            enforceControl();
++            checkBrightness(brightness);
++            IRgbLed hal = getHal();
++            try {
++                return hal != null
++                        && hal.setColor(rgb & 0xffffff, (byte) brightness) == Status.SUCCESS;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "setColor failed", e);
++                return false;
++            }
++        }
++
++        @Override
++        public boolean setBlink(int rgb, int brightness, int onMs, int offMs) {
++            enforceControl();
++            checkBrightness(brightness);
++            if (onMs < RgbLedManager.MIN_BLINK_ON_MS || onMs > RgbLedManager.MAX_BLINK_MS
++                    || offMs < 0 || offMs > RgbLedManager.MAX_BLINK_MS) {
++                throw new IllegalArgumentException("Invalid blink timing " + onMs + "/" + offMs);
++            }
++            IRgbLed hal = getHal();
++            try {
++                return hal != null && hal.setBlink(rgb & 0xffffff, (byte) brightness, onMs, offMs)
++                        == Status.SUCCESS;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "setBlink failed", e);
++                return false;
++            }
++        }
++
++        @Override
++        public String[] getSupportedTriggers() {
++            IRgbLed hal = getHal();
++            try {
++                if (hal == null) return new String[0];
++                ArrayList<String> triggers = hal.getSupportedTriggers();
++                return triggers.toArray(new String[triggers.size()]);
++            } catch (RemoteException e) {
++                Slog.e(TAG, "getSupportedTriggers failed", e);
++                return new String[0];
++            }
++        }
++
++        @Override
++        public boolean setTrigger(int channel, String trigger) {
++            enforceControl();
++            checkChannel(channel);
++            if (trigger == null || trigger.isEmpty()) {
++                throw new IllegalArgumentException("Trigger must not be empty");
++            }
++            IRgbLed hal = getHal();
++            try {
++                return hal != null && hal.setTrigger(channel, trigger) == Status.SUCCESS;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "setTrigger failed", e);
++                return false;
++            }
++        }
++
++        @Override
++        public String getTrigger(int channel) {
++            checkChannel(channel);
++            IRgbLed hal = getHal();
++            try {
++                return hal != null ? hal.getTrigger(channel) : null;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "getTrigger failed", e);
++                return null;
++            }
++        }
++
++        @Override
++        public int getBrightness(int channel) {
++            checkChannel(channel);
++            IRgbLed hal = getHal();
++            try {
++                return hal != null ? hal.getBrightness(channel) : -1;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "getBrightness failed", e);
++                return -1;
++            }
++        }
++
++        @Override
++        public boolean turnOff() {
++            enforceControl();
++            IRgbLed hal = getHal();
++            try {
++                return hal != null && hal.turnOff() == Status.SUCCESS;
++            } catch (RemoteException e) {
++                Slog.e(TAG, "turnOff failed", e);
++                return false;
++            }
++        }
++
++        @Override
++        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
++            if (!DumpUtils.checkDumpPermission(getContext(), TAG, pw)) return;
++            pw.println("RGB LED service");
++            pw.println("  HAL available: " + isAvailable());
++            String[] names = {"red", "green", "blue"};
++            for (int c = RgbLedManager.CHANNEL_RED; c <= RgbLedManager.CHANNEL_BLUE; c++) {
++                pw.println("  " + names[c] + ": brightness=" + getBrightness(c)
++                        + " trigger=" + getTrigger(c));
++            }
++        }
++    }
++}
+diff --git a/services/java/com/android/server/SystemServer.java b/services/java/com/android/server/SystemServer.java
+index 72a90398da8..9f593aaca38 100644
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -102,6 +102,7 @@ import com.android.server.power.PowerManagerService;
+ import com.android.server.power.ShutdownThread;
+ import com.android.server.broadcastradio.BroadcastRadioService;
+ import com.android.server.restrictions.RestrictionsManagerService;
++import com.android.server.rgbled.RgbLedService;
+ import com.android.server.security.KeyAttestationApplicationIdProviderService;
+ import com.android.server.security.KeyChainSystemService;
+ import com.android.server.soundtrigger.SoundTriggerService;
+@@ -819,6 +820,10 @@ public final class SystemServer {
+                 traceEnd();
+             }
+ 
++            traceBeginAndSlog("StartRgbLedService");
++            mSystemServiceManager.startService(RgbLedService.class);
++            traceEnd();
++
+             traceBeginAndSlog("StartAlarmManagerService");
+             mSystemServiceManager.startService(AlarmManagerService.class);
+             traceEnd();

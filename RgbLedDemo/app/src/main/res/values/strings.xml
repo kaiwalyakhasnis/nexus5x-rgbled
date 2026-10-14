@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RGB LED Demo</string>
+    <string name="section_color">Color</string>
+    <string name="section_brightness">Brightness</string>
+    <string name="section_channels">Channels (toggle)</string>
+    <string name="section_blink">Hardware blink</string>
+    <string name="section_trigger">Kernel trigger</string>
+    <string name="section_state">LED state</string>
+    <string name="red">Red</string>
+    <string name="green">Green</string>
+    <string name="blue">Blue</string>
+    <string name="start_blink">Blink selected color</string>
+    <string name="apply_trigger">Apply trigger</string>
+    <string name="turn_off">Turn off</string>
+    <string name="refresh">Refresh</string>
+</resources>
